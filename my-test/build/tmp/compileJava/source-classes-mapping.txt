@@ -1,0 +1,4 @@
+com/test/User.java
+ com.test.User
+MyApplication.java
+ MyApplication

@@ -252,7 +252,9 @@ public class AutowiredAnnotationBeanPostProcessor implements SmartInstantiationA
 		this.lookupMethodsChecked.remove(beanName);
 		this.injectionMetadataCache.remove(beanName);
 	}
-
+	/**
+	 * 挑选候选构造器
+	 */
 	@Override
 	@Nullable
 	public Constructor<?>[] determineCandidateConstructors(Class<?> beanClass, final String beanName)
@@ -297,8 +299,11 @@ public class AutowiredAnnotationBeanPostProcessor implements SmartInstantiationA
 		if (candidateConstructors == null) {
 			// Fully synchronized resolution now...
 			synchronized (this.candidateConstructorsCache) {
+				// 从缓存中获取构造器
 				candidateConstructors = this.candidateConstructorsCache.get(beanClass);
+				// 如果缓存中不存在
 				if (candidateConstructors == null) {
+					// 获取所有的构造器
 					Constructor<?>[] rawCandidates;
 					try {
 						rawCandidates = beanClass.getDeclaredConstructors();
@@ -313,6 +318,7 @@ public class AutowiredAnnotationBeanPostProcessor implements SmartInstantiationA
 					Constructor<?> defaultConstructor = null;
 					Constructor<?> primaryConstructor = BeanUtils.findPrimaryConstructor(beanClass);
 					int nonSyntheticConstructors = 0;
+					// 遍历所有的构造器
 					for (Constructor<?> candidate : rawCandidates) {
 						if (!candidate.isSynthetic()) {
 							nonSyntheticConstructors++;
@@ -320,8 +326,11 @@ public class AutowiredAnnotationBeanPostProcessor implements SmartInstantiationA
 						else if (primaryConstructor != null) {
 							continue;
 						}
+						// 寻找标注了@Autowired,@Value的构造器
 						MergedAnnotation<?> ann = findAutowiredAnnotation(candidate);
+						// 如果没有标注Autowired的构造器
 						if (ann == null) {
+							//父类对象
 							Class<?> userClass = ClassUtils.getUserClass(beanClass);
 							if (userClass != beanClass) {
 								try {
@@ -334,6 +343,7 @@ public class AutowiredAnnotationBeanPostProcessor implements SmartInstantiationA
 								}
 							}
 						}
+						// 如果有标注Autowired的构造器
 						if (ann != null) {
 							if (requiredConstructor != null) {
 								throw new BeanCreationException(beanName,
@@ -349,11 +359,15 @@ public class AutowiredAnnotationBeanPostProcessor implements SmartInstantiationA
 											". Found constructor with 'required' Autowired annotation: " +
 											candidate);
 								}
+								// 标注为必须注入的构造器
 								requiredConstructor = candidate;
 							}
+							// 加入到候选构造器中
 							candidates.add(candidate);
 						}
+						// 如果构造器没有参数
 						else if (candidate.getParameterCount() == 0) {
+							// 标注为默认构造器
 							defaultConstructor = candidate;
 						}
 					}

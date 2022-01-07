@@ -1,5 +1,6 @@
-package com.test;
+package com.wzy.service;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -12,6 +13,8 @@ public class User {
 
 	private int id = 1;
 	private String name;
+
+	private Order order;
 
 	public int getId() {
 		return id;
@@ -27,5 +30,16 @@ public class User {
 
 	public void setName(String name) {
 		this.name = name;
+	}
+
+	@Autowired
+	public User(Order order) {
+		this.order = order;
+	}
+
+	public void test(){
+
+		System.out.println("order的值为 ："+ order);
+		order.test();
 	}
 }

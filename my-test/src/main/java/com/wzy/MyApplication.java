@@ -1,5 +1,6 @@
-import com.test.User;
-import org.springframework.context.ApplicationContext;
+package com.wzy;
+
+import com.wzy.service.User;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 /**
@@ -12,10 +13,9 @@ public class MyApplication {
 
 	public static void main(String[] args) {
 
-		ApplicationContext context = new AnnotationConfigApplicationContext(User.class);
-
+		AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext("com.wzy");
 		User user = (User)context.getBean("user");
-		System.out.println(User.class.getName());
+		user.test();
 
 	}
 }

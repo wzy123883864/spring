@@ -1,5 +1,6 @@
 package com.wangzhiyuan.service;
 
+import com.spring.Autowired;
 import com.spring.Component;
 import com.spring.Scope;
 
@@ -11,7 +12,11 @@ import com.spring.Scope;
 @Component
 public class OrderService {
 
+	@Autowired
+	private UserService userService;
+
 	public void test(){
-		System.out.println("orderService的方法逻辑");
+
+		System.out.println("OrderService的userservice="+userService);
 	}
 }

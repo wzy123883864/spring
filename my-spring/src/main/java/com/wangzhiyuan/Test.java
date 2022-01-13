@@ -1,8 +1,7 @@
 package com.wangzhiyuan;
 
 import com.spring.ApplicationContext;
-import com.spring.BeanNameAutoProxyCreator;
-import com.wangzhiyuan.Appconfig;
+import com.wangzhiyuan.service.OrderService;
 import com.wangzhiyuan.service.UserService;
 
 /**
@@ -15,10 +14,9 @@ public class Test {
 
 	public static void main(String[] args) {
 		ApplicationContext applicationContext = new ApplicationContext(Appconfig.class);
-		BeanNameAutoProxyCreator beanNameAutoProxyCreator = new BeanNameAutoProxyCreator("orderService", "testMethodInterceptor");
-		applicationContext.registerSingletonBean("beanNameAutoProxyCreator",beanNameAutoProxyCreator);
 		UserService userService = applicationContext.getBean("userService", UserService.class);
-		System.out.println(userService);
+		OrderService orderService = applicationContext.getBean("orderService", OrderService.class);
 		userService.test();
+		orderService.test();
 	}
 }

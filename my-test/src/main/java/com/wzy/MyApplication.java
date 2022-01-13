@@ -1,5 +1,6 @@
 package com.wzy;
 
+import com.wzy.service.Order;
 import com.wzy.service.User;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
@@ -14,8 +15,10 @@ public class MyApplication {
 	public static void main(String[] args) {
 
 		AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext("com.wzy");
-		User user = (User)context.getBean("user");
-		user.test();
+		//User user = (User)context.getBean("user");
+		Order order = (Order)context.getBean("order");
+		//user.test();
+		order.test();
 
 	}
 }

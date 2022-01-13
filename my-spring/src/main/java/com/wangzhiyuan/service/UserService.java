@@ -20,13 +20,11 @@ public class UserService implements InitializingBean {
 	};
 	@Autowired
 	public UserService(OrderService orderService) {
-		System.out.println("我是有参构造器");
 		this.orderService = orderService;
 	}
 
 	public void test(){
-		orderService.test();
-		System.out.println(beanName);
+		System.out.println("userservice中的orderservice = " + orderService);
 	}
 
 	public void setBeanName(String beanName) {

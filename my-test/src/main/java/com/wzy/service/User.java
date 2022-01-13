@@ -39,7 +39,7 @@ public class User {
 
 	public void test(){
 
-		System.out.println("order的值为 ："+ order);
+		System.out.println("user中order的值为 ："+ order);
 		order.test();
 	}
 }

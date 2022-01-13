@@ -1,11 +1,16 @@
 package com.spring;
 
+import org.springframework.cglib.proxy.Callback;
+import org.springframework.cglib.proxy.Enhancer;
+import org.springframework.cglib.proxy.MethodInterceptor;
+import org.springframework.objenesis.Objenesis;
+import org.springframework.objenesis.ObjenesisStd;
+
 import java.beans.Introspector;
 import java.io.File;
 import java.lang.reflect.*;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -19,8 +24,15 @@ public class ApplicationContext {
 	private Class configClass;
 
 	private ConcurrentHashMap<String,Object> singletonObjects = new ConcurrentHashMap<>();
+	private HashMap<String,Object> earlySingletonObjects= new HashMap<>();
+	private final Map<String, ObjectFactory<?>> singletonFactories = new HashMap<>(16);
 	private ConcurrentHashMap<String,BeanDefinition> beanDefinitionMap = new ConcurrentHashMap<>();
+	//提前进行aop标志 源码中是个 Map<Object, Object> earlyProxyReferences
+	private Set<String> earlyProxyReferences = new HashSet<>();
 	private List<BeanPostProcessor> beanPostProcessorList = new ArrayList<>();
+	private Set<String> creatingBean = new HashSet<>();
+
+	private boolean isAop;
 
 	public ApplicationContext(Class configClass) {
 
@@ -30,6 +42,7 @@ public class ApplicationContext {
 		//注册代理后置处理器
 		registerSingletonBean("proxBeanPostProcessor",new ProxBeanPostProcessor());
 		//解析配置类  getDeclareAnnotation方法是不包含父类注解
+		scanAnnotationBean(configClass);
 		scan(configClass);
 
 
@@ -39,6 +52,30 @@ public class ApplicationContext {
 				singletonObjects.put(beanName,bean);
 			}
 		});
+	}
+
+	private void scanAnnotationBean(Class configClass) {
+		Method[] declaredMethods = configClass.getDeclaredMethods();
+		for (Method declaredMethod : declaredMethods) {
+			Bean beanAnnotation = declaredMethod.getDeclaredAnnotation(Bean.class);
+			if(beanAnnotation != null){
+				String name = declaredMethod.getName();
+				try {
+					Object o = configClass.getConstructor().newInstance();
+					Object invoke = declaredMethod.invoke(o);
+					singletonObjects.put(name,invoke);
+				} catch (InstantiationException e) {
+					e.printStackTrace();
+				} catch (IllegalAccessException e) {
+					e.printStackTrace();
+				} catch (InvocationTargetException e) {
+					e.printStackTrace();
+				} catch (NoSuchMethodException e) {
+					e.printStackTrace();
+				}
+
+			}
+		}
 	}
 
 	/**
@@ -71,7 +108,8 @@ public class ApplicationContext {
 	 * @return
 	 */
 	public Object createBean(String beanName,BeanDefinition bd){
-		Object instatnce = null;
+		creatingBean.add(beanName);
+		Object instatnce = getSingleton(beanName);
 		Class clazz = bd.getClazz();
 
 		Constructor[] constructors = clazz.getDeclaredConstructors();
@@ -86,14 +124,18 @@ public class ApplicationContext {
 		Parameter[] parameters = defaultConstructor.getParameters();
 
 
-		//依赖注入
 		if(parameters == null || parameters.length == 0){
 			//无参构造器
 			instatnce = newInstatnce(clazz, defaultConstructor);
 		}else{
-			instatnce =  newInstance(clazz, defaultConstructor, parameters);
+			instatnce =  newInstance(defaultConstructor, parameters);
 
 		}
+		//原始对象放入三级缓存
+		Object finalInstatnce = instatnce;
+		singletonFactories.put(beanName,()->createProxy(beanName, finalInstatnce));
+		//依赖注入
+		instatnce = autowired(clazz, instatnce);
 		//Aware回调
 		if(instatnce instanceof BeanAware){
 			((BeanAware)instatnce).setBeanName(beanName);
@@ -111,18 +153,57 @@ public class ApplicationContext {
 			instatnce = beanPostProcessor.postProcessAfterInitialization(instatnce,beanName);
 		}
 
-		//Object proxy = Proxy.newProxyInstance(this.getClass().getClassLoader(), instatnce.getClass().getInterfaces(), new ProxyBean(instatnce));
+		Object earlySingletonReference = getSingleton(beanName);
+		if (earlySingletonReference != null) {
+			if (instatnce == finalInstatnce) {
+				instatnce = earlySingletonReference;
+			}
+		}
+		if(!earlyProxyReferences.contains(beanName)){
+			instatnce = createProxy(beanName, instatnce);
+		}else{
+			earlyProxyReferences.remove(beanName);
+		}
+		creatingBean.remove(beanName);
+		return instatnce;
+	}
+
+	/**
+	 * 根据调解创建代理对象
+	 * @param beanName
+	 * @param instatnce
+	 * @return
+	 */
+	private Object createProxy(String beanName, Object instatnce) {
+		earlyProxyReferences.add(beanName);
+		//处理BeanNameAutoProxyCreator
+		BeanNameAutoProxyCreator beanNameAutoProxyCreator = (BeanNameAutoProxyCreator)singletonObjects.get("beanNameAutoProxyCreator");
+		if(beanNameAutoProxyCreator != null){
+			String proxyBeanName = beanNameAutoProxyCreator.getBeanName();
+			String interceptorName = beanNameAutoProxyCreator.getInterceptorName();
+			MethodInterceptor methodInterceptor = (MethodInterceptor)singletonObjects.get(interceptorName);
+			if(proxyBeanName != null && interceptorName != null){
+				if(beanName.equals(proxyBeanName)){
+					Class<?> clazz = instatnce.getClass();
+					Enhancer enhancer = new Enhancer();
+					enhancer.setUseCache(true);
+					enhancer.setSuperclass(clazz);
+					enhancer.setClassLoader(clazz.getClassLoader());
+					enhancer.setCallback(methodInterceptor);
+					return enhancer.create();
+				}
+			}
+		}
 		return instatnce;
 	}
 
 	/**
 	 * 有参数构造方法
-	 * @param clazz
 	 * @param defaultConstructor
 	 * @param parameters
 	 * @return
 	 */
-	private Object newInstance(Class clazz, Constructor defaultConstructor, Parameter[] parameters) {
+	private Object newInstance(Constructor defaultConstructor, Parameter[] parameters) {
 
 		Object[] params = new Object[parameters.length];
 		Class[] paramTyps = new Class[parameters.length];
@@ -155,7 +236,7 @@ public class ApplicationContext {
 	private Object newInstatnce(Class clazz, Constructor defaultConstructor) {
 		Object instance = null;
 		try {
-			instance = defaultConstructor.newInstance();
+			return instance = defaultConstructor.newInstance();
 		} catch (InstantiationException e) {
 			e.printStackTrace();
 		} catch (IllegalAccessException e) {
@@ -163,18 +244,49 @@ public class ApplicationContext {
 		} catch (InvocationTargetException e) {
 			e.printStackTrace();
 		}
+		return null;
+	}
+
+	private Object autowired(Class clazz, Object instance) {
 		Field[] declaredFields = clazz.getDeclaredFields();
+		Constructor[] declaredConstructors = clazz.getDeclaredConstructors();
+		for (Constructor declaredConstructor : declaredConstructors) {
+			if(declaredConstructor.isAnnotationPresent(Autowired.class)){
+				Class[] parameterTypes = declaredConstructor.getParameterTypes();
+				Object[] parameters = new Object[parameterTypes.length];
+				for (int i = 0; i < parameterTypes.length; i++) {
+					String simpleName = parameterTypes[i].getSimpleName();
+					String beanName = Introspector.decapitalize(simpleName);
+					Object bean = getSingleton(beanName);
+					if(bean == null){
+						bean = createBean(beanName, beanDefinitionMap.get(beanName));
+					}
+					parameters[i] = bean;
+				}
+				try {
+					return declaredConstructor.newInstance(parameters);
+				} catch (InstantiationException e) {
+					e.printStackTrace();
+				} catch (IllegalAccessException e) {
+					e.printStackTrace();
+				} catch (InvocationTargetException e) {
+					e.printStackTrace();
+				}
+			}
+		}
 		for (Field declaredField : declaredFields) {
 			if (declaredField.isAnnotationPresent(Autowired.class)){
 				String fieldName = declaredField.getName();
-				Object fieldBean = singletonObjects.get(fieldName);
-				if(fieldBean != null){
-					declaredField.setAccessible(true);
-					try {
-						declaredField.set(instance,fieldBean);
-					} catch (IllegalAccessException e) {
-						e.printStackTrace();
-					}
+
+				Object bean = getSingleton(fieldName);
+				if(bean == null){
+					bean = createBean(fieldName, beanDefinitionMap.get(fieldName));
+				}
+				declaredField.setAccessible(true);
+				try {
+					declaredField.set(instance,bean);
+				} catch (IllegalAccessException e) {
+					e.printStackTrace();
 				}
 			}
 		}
@@ -261,7 +373,7 @@ public class ApplicationContext {
 				//创建bean对象
 			}
 		}else{
-			throw new NullPointerException(beanName+"不存在");
+			throw new NullPointerException(beanName+"的BD对象不存在");
 		}
 	}
 
@@ -276,6 +388,7 @@ public class ApplicationContext {
 
 
 	public void registerSingletonBean(String beanName,Object bean){
+
 		if(bean instanceof BeanPostProcessor){
 			beanPostProcessorList.add((BeanPostProcessor)bean);
 		}
@@ -294,6 +407,36 @@ public class ApplicationContext {
 		singletonObjects.put(beanName,bean);
 	}
 
+	//源码中的方法
+	protected Object getSingleton(String beanName) {
+		// Quick check for existing instance without full singleton lock
+		Object singletonObject = this.singletonObjects.get(beanName);
+		if (singletonObject == null && isSingletonCurrentlyInCreation(beanName)) {
+			singletonObject = this.earlySingletonObjects.get(beanName);
+			if (singletonObject == null) {
+				synchronized (this.singletonObjects) {
+					// Consistent creation of early reference within full singleton lock
+					singletonObject = this.singletonObjects.get(beanName);
+					if (singletonObject == null) {
+						singletonObject = this.earlySingletonObjects.get(beanName);
+						if (singletonObject == null) {
+							ObjectFactory<?> singletonFactory = this.singletonFactories.get(beanName);
+							if (singletonFactory != null) {
+								singletonObject = singletonFactory.getObject();
+								this.earlySingletonObjects.put(beanName, singletonObject);
+								this.singletonFactories.remove(beanName);
+							}
+						}
+					}
+				}
+			}
+		}
+		return singletonObject;
+	}
+
+	private boolean isSingletonCurrentlyInCreation(String beanName) {
+		return creatingBean.contains(beanName);
+	}
 
 
 }
